@@ -112,7 +112,14 @@ const saveOne = async (p, idx) => {
       url: p.pdf_url,
       filename: `${p.arxiv_id || 'paper'}.pdf`,
     })
-    alert('✅ 已入库：' + (r.data.title || p.title))
+    const d = r.data
+    if (d.status === 'duplicate') {
+      alert('⚠️ 已存在于库中，跳过重复入库：' + (d.title || p.title))
+    } else if (d.detections && d.detections.length) {
+      alert('✅ 已入库：' + (d.title || p.title) + '\n\n' + d.detections[0].suggestion)
+    } else {
+      alert('✅ 已入库：' + (d.title || p.title))
+    }
   } catch (e) {
     alert('入库失败: ' + e.message)
   }
