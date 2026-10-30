@@ -40,8 +40,16 @@
       </div>
     </div>
 
-    <div v-else-if="searched" class="card empty">
+    <div v-else-if="loading" class="card empty">
+      <p>⏳ {{ isSearch ? '正在搜索论文，请稍候…' : '正在加载今日推送，请稍候…' }}</p>
+    </div>
+
+    <div v-else-if="searched && isSearch" class="card empty">
       <p>😕 没有找到相关论文，试试换个关键词</p>
+    </div>
+
+    <div v-else-if="searched" class="card empty">
+      <p>😕 今天暂时没有推送内容，稍后再试试</p>
     </div>
 
     <div v-else class="card empty">
