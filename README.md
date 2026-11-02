@@ -1,4 +1,4 @@
-# 🧬 Research Assistant Agent
+# Research Assistant Agent
 
 > 全国高校 AI 大模型挑战赛作品 - 全流程科研助手 Agent
 
@@ -6,7 +6,7 @@
 
 ---
 
-## ✨ 核心特性（6 大模块）
+## 核心特性（6 大模块）
 
 | # | 模块 | 技术 |
 |---|---|---|
@@ -19,7 +19,7 @@
 
 ---
 
-## 🤖 Agent 工具链（7 个 Function Calling 工具）
+## Agent 工具链（7 个 Function Calling 工具）
 
 LangGraph ReAct 循环，模型自主决定调用顺序，全程记录思考链（`thinking_trace`）：
 
@@ -35,15 +35,15 @@ LangGraph ReAct 循环，模型自主决定调用顺序，全程记录思考链�
 
 ---
 
-## 🏗️ 技术架构
+## 技术架构
 
-```
-┌─────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│  Vue 3 前端  │───▶│  FastAPI 后端      │───▶│  Chroma 向量库    │
-│  Vite       │    │  LangGraph Agent  │    │  ONNX Embedding  │
-│  ECharts    │    │  Ollama LLM       │    │  PyMuPDF         │
-└─────────────┘    └──────────────────┘    └─────────────────┘
-```
+整体分三层，数据单向流动：
+
+- 前端层：Vue 3 + Vite + ECharts，负责页面展示与交互。
+- 服务层：FastAPI 后端 + LangGraph Agent + Ollama LLM，负责业务编排、工具调用与模型推理。
+- 数据层：Chroma 向量库 + ONNX Embedding + PyMuPDF，负责向量存储、语义检索与 PDF 解析。
+
+请求链路：Vue 前端发起 HTTP 请求 → FastAPI 路由分发 → LangGraph Agent 按需调用工具或直接进入业务服务 → 读写 Chroma 向量库 / 解析 PDF → 结果逐层返回前端渲染。
 
 ### 模型栈（全本地化，零 API 费用）
 
@@ -55,7 +55,7 @@ LangGraph ReAct 循环，模型自主决定调用顺序，全程记录思考链�
 
 ---
 
-## 🚀 快速开始
+## 快速开始
 
 ### 环境要求
 
@@ -91,7 +91,7 @@ npm run dev
 
 ---
 
-## ⚙️ 环境变量配置
+## 环境变量配置
 
 复制 `backend/.env.example` 为 `backend/.env` 后按需修改（**`.env` 不入库**）：
 
@@ -108,7 +108,7 @@ npm run dev
 
 ---
 
-## 🐳 Docker 一键部署
+## Docker 一键部署
 
 ```bash
 docker-compose up -d backend ollama
@@ -118,7 +118,7 @@ docker-compose --profile serve-frontend up -d
 
 ---
 
-## 📁 项目结构
+## 项目结构
 
 ```
 keyanzhushou/
@@ -143,7 +143,7 @@ keyanzhushou/
 
 ---
 
-## 🔑 API 一览
+## API 一览
 
 | 方法 | 路径 | 功能 |
 |---|---|---|
@@ -170,7 +170,7 @@ keyanzhushou/
 
 ---
 
-## ✅ 测试用例
+## 测试用例
 
 比赛官方提供的 PDF 测试集：
 
@@ -181,18 +181,16 @@ keyanzhushou/
 
 ---
 
-## 👥 团队信息
+## 团队信息
 
 | 项 | 内容 |
 |---|---|
 | 参赛赛道 | 全国高校 AI 大模型挑战赛 · 智领科研 |
-| 团队名称 | （待填） |
-| 成员 | （待填） |
-| 指导教师 | （待填） |
-| 联系邮箱 | （待填） |
+| 成员 | 徐梓轩 |
+| 联系邮箱 | 925158470@qq.com |
 
 ---
 
-## 📜 License
+## License
 
 MIT
