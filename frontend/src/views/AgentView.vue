@@ -34,7 +34,7 @@
               <!-- Agent 思考链（多步决策时间线） -->
               <div class="trace" v-if="msg.trace && msg.trace.length">
                 <div class="trace-head" @click="msg.traceOpen = !msg.traceOpen">
-                  <span class="trace-title">🧠 Agent 思考链 · {{ msg.trace.filter(s => s.tool !== 'FINISH').length }} 步</span>
+                  <span class="trace-title">🧠 Agent 思考链 · {{ msg.trace.filter(s => s.tool !== 'FINISH' && s.tool !== 'DIRECT').length }} 步</span>
                   <span class="trace-toggle">{{ msg.traceOpen ? '收起 ▴' : '展开 ▾' }}</span>
                 </div>
                 <div class="trace-body" v-show="msg.traceOpen">
@@ -51,7 +51,7 @@
                     </div>
                     <div class="step-intent">💭 {{ s.intent }}</div>
                     <div class="step-query" v-if="s.query">→ {{ s.query }}</div>
-                    <div class="step-out" v-if="s.output_summary">📥 {{ s.output_summary }}</div>
+                    <div class="step-out" v-if="s.output_summary">📥 {{ s.output_full || s.output_summary }}</div>
                   </div>
                   <div class="trace-end">✨ 汇总生成最终回答</div>
                 </div>
@@ -163,7 +163,8 @@ const scrollBottom = async () => {
 }
 
 const send = async (text) => {
-  const content = text || input.value.trim()
+  // keydown.enter 会把 KeyboardEvent 当参数传进来，只接受字符串
+  const content = (typeof text === 'string' ? text : input.value).trim()
   if (!content || loading.value) return
 
   messages.value.push({ role: 'user', content })
@@ -178,7 +179,7 @@ const send = async (text) => {
       role: 'assistant',
       content: r.data.answer,
       trace,
-      traceOpen: true,                       // 默认展开思考链，演示时直观
+      traceOpen: false,                      // 默认折叠思考链，点击展开查看完整内容
       toolsUsed: (r.data.all_tools || []).join(' → '),
       tool_used: r.data.tool_used || '',
       sources: r.data.sources || [],

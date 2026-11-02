@@ -48,6 +48,7 @@ class AgentState(TypedDict):
     intermediate_results: Annotated[dict, _merge_dicts]
     thinking_trace: Annotated[list, operator.add]  # 思考链：每一步的决策与执行记录
     final_answer: str
+    direct_answer: str  # 通用知识问题的直接回答（不经过工具）
     max_iterations: int  # 防止死循环
     iteration: int
 
@@ -176,9 +177,13 @@ def _parse_decision(raw: str, remain: list, done_tools: list, user_input: str) -
         if not action and "FINISH" in text.upper():
             action = "FINISH"
 
-    # 归一化 FINISH
+    # 归一化 FINISH / DIRECT
     if action.upper() == "FINISH":
         return "FINISH", "", intent or "信息已充足，可以汇总"
+    if action.upper() == "DIRECT":
+        return "DIRECT", "", intent or "通用知识问题，直接回答"
+    if not action and "DIRECT" in text.upper():
+        return "DIRECT", "", intent or "通用知识问题，直接回答"
 
     # 工具名非法（未知名 / 已执行过）→ 分级兜底
     if action not in remain:
@@ -246,17 +251,38 @@ def agent_decide(state: AgentState) -> AgentState:
 本轮还可选择的工具（不要选已执行过的）：
 {tool_descs}
 
-请判断：现有信息是否已经足够回答用户请求？
-- 足够 → action 填 "FINISH"
-- 还缺信息 → 从上面选一个工具继续补充
+请判断下一步：
+- 用户的问题是通用知识/概念解释类（如「XX 是什么」「XX 有哪些方法」），与本地文献库内容无直接关系，也不需要查最新论文 → action 填 "DIRECT"
+- 现有信息已足够回答 → action 填 "FINISH"
+- 还缺文献库/图谱/arXiv 信息 → 从上面选一个工具继续补充
 
 严格按要求输出 JSON，不要任何其他文字：
-{{"action": "工具名或FINISH", "query": "传给该工具的查询语句", "intent": "选择它的理由，15字以内"}}
+{{"action": "工具名或FINISH或DIRECT", "query": "传给该工具的查询语句", "intent": "选择它的理由，15字以内"}}
 
 注意：query 应结合已获得的结果重新组织，不要照抄用户原句。"""
 
     raw = llm_chat(prompt, system="你是任务规划器，只输出一个 JSON 对象，不要任何解释。").strip()
     action, query, intent = _parse_decision(raw, remain, done_tools, user_input)
+
+    # 通用知识问题：不经过工具，直接用模型自身知识回答
+    if action == "DIRECT":
+        direct = llm_chat(
+            user_input,
+            system="你是严谨的科研助手。用简洁清晰的中文回答这个通用知识问题（3-6 句话），不确定时说不知道，不要假装引用了任何文献。",
+        )
+        return {
+            "next_action": "FINISH",
+            "next_query": "",
+            "next_intent": intent,
+            "iteration": step_no,
+            "messages": ["[Agent 决策] DIRECT 直接回答"],
+            "direct_answer": direct,
+            "thinking_trace": [{
+                "step": step_no, "intent": intent or "通用知识问题，直接回答",
+                "tool": "DIRECT", "query": "", "output_summary": "",
+                "elapsed_ms": 0, "status": "finish",
+            }],
+        }
 
     result = {
         "next_action": action,
@@ -306,6 +332,7 @@ def execute_tool(state: AgentState) -> AgentState:
     elapsed = int((time.time() - t0) * 1000)
 
     summary = " ".join(str(result).split())[:180]
+    full = str(result)[:2000]
 
     return {
         "messages": [f"[{tool_name} 结果] {summary}"],
@@ -316,6 +343,7 @@ def execute_tool(state: AgentState) -> AgentState:
             "tool": tool_name,
             "query": query,
             "output_summary": summary,
+            "output_full": full,
             "elapsed_ms": elapsed,
             "status": status,
         }],
@@ -340,6 +368,9 @@ def synthesize(state: AgentState) -> AgentState:
     user_input = state["messages"][0] if state["messages"] else ""
 
     if not results:
+        direct = state.get("direct_answer")
+        if direct:
+            return {"final_answer": direct}
         return {"final_answer": "抱歉，我没能处理您的请求。"}
 
     context = "\n\n".join(f"[{name}]\n{res}" for name, res in results.items())
@@ -430,6 +461,7 @@ def agent_chat(user_input: str, session_id: str = "default") -> dict:
             "intermediate_results": {},
             "thinking_trace": [],
             "final_answer": "",
+            "direct_answer": "",
             "max_iterations": max_iterations,
             "iteration": 0,
         })
