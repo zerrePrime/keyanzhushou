@@ -35,7 +35,9 @@
         <div class="paper-links">
           <a v-if="p.pdf_url" :href="p.pdf_url" target="_blank" class="link pdf">📄 PDF</a>
           <a v-if="p.abs_url" :href="p.abs_url" target="_blank" class="link abs">📎 Abstract</a>
-          <button class="link save" @click="saveOne(p, i)">💾 入库</button>
+          <button class="link save" @click="saveOne(p, i)" :disabled="savingIdx === i">
+            {{ savingIdx === i ? '⏳ 入库中…' : '💾 入库' }}
+          </button>
         </div>
       </div>
     </div>
@@ -67,6 +69,7 @@ const papers = ref([])
 const loading = ref(false)
 const isSearch = ref(true)
 const searched = ref(false)
+const savingIdx = ref(-1)
 
 const formatAuthors = (authors) => {
   if (!authors || !authors.length) return ''
@@ -107,6 +110,8 @@ const daily = async () => {
 const saveOne = async (p, idx) => {
   // arXiv PDF 下载 → 临时文件 → upload
   if (!p.pdf_url) return alert('这篇没有 PDF 链接')
+  if (savingIdx.value !== -1) return
+  savingIdx.value = idx
   try {
     const r = await axios.post('/api/arxiv/download', {
       url: p.pdf_url,
@@ -122,6 +127,8 @@ const saveOne = async (p, idx) => {
     }
   } catch (e) {
     alert('入库失败: ' + e.message)
+  } finally {
+    savingIdx.value = -1
   }
 }
 
@@ -201,4 +208,5 @@ const saveAll = async () => {
   background: #e8f5e9; color: #2e7d32; border: none;
 }
 .link.save:hover { background: #2e7d32; color: #fff; }
+.link.save:disabled { opacity: 0.6; cursor: not-allowed; }
 </style>

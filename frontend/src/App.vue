@@ -11,25 +11,25 @@
       </div>
 
       <router-link to="/papers" class="nav-item" active-class="active">
-        <span class="nav-icon">📄</span><span>文献库</span>
+<span>文献库</span>
       </router-link>
       <router-link to="/qa" class="nav-item" active-class="active">
-        <span class="nav-icon">💬</span><span>RAG 问答</span>
+<span>RAG 问答</span>
       </router-link>
       <router-link to="/agent" class="nav-item" active-class="active">
-        <span class="nav-icon">🤖</span><span>Agent 对话</span>
+<span>Agent 对话</span>
       </router-link>
       <router-link to="/arxiv" class="nav-item" active-class="active">
-        <span class="nav-icon">🔎</span><span>arXiv 检索</span>
+<span>arXiv 检索</span>
       </router-link>
       <router-link to="/graph" class="nav-item" active-class="active">
-        <span class="nav-icon">🕸️</span><span>引用图谱</span>
+<span>引用图谱</span>
       </router-link>
       <router-link to="/writing" class="nav-item" active-class="active">
-        <span class="nav-icon">✍️</span><span>写作 Copilot</span>
+<span>写作 Copilot</span>
       </router-link>
       <router-link to="/reader" class="nav-item" active-class="active">
-        <span class="nav-icon">📖</span><span>PDF 阅读</span>
+<span>PDF 阅读</span>
       </router-link>
 
       <div class="sidebar-footer">
