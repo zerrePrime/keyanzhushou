@@ -1,0 +1,60 @@
+{
+  "base_url": "http://127.0.0.1:8080",
+  "time": "2026-11-08 12:52:10",
+  "pass_rate": 100.0,
+  "passed": 9,
+  "runnable": 9,
+  "skipped": 1,
+  "cases": [
+    {
+      "case": "T1 矢量论文解析",
+      "state": "PASS",
+      "detail": "库中已存在，复用 398888fc9589"
+    },
+    {
+      "case": "T2 目录树提取",
+      "state": "PASS",
+      "detail": "34 节点 / 标题含空格=True"
+    },
+    {
+      "case": "T3 单页文本读取",
+      "state": "PASS",
+      "detail": "2718 字符"
+    },
+    {
+      "case": "T4 版本演进识别",
+      "state": "PASS",
+      "detail": "库中已存在 18e1b007a1da，复用"
+    },
+    {
+      "case": "T5 重复上传拦截",
+      "state": "PASS",
+      "detail": "status=duplicate"
+    },
+    {
+      "case": "T6 扫描件 OCR",
+      "state": "PASS",
+      "detail": "库中已存在 75de5eb2d113 / 首页 OCR 文本 2730 字符"
+    },
+    {
+      "case": "T7 长文档解析",
+      "state": "PASS",
+      "detail": "库中已存在 b7acf3962cc4（长文档已验证）"
+    },
+    {
+      "case": "T8 RAG 问答",
+      "state": "SKIP",
+      "detail": "检索正常（8 条引用），但 LLM Key 未配置"
+    },
+    {
+      "case": "T9 引用图谱",
+      "state": "PASS",
+      "detail": "HTTP 200"
+    },
+    {
+      "case": "T10 arXiv 每日推荐",
+      "state": "PASS",
+      "detail": "20 篇 / 过滤 0 篇"
+    }
+  ]
+}
