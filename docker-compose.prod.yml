@@ -1,0 +1,38 @@
+services:
+  backend:
+    build: ./backend
+    container_name: research-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      # 覆盖 Windows 本地绝对路径，容器内统一到挂载目录
+      - CHROMA_PERSIST_DIR=/app/data/chroma_db
+      - UPLOAD_DIR=/app/uploads
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/uploads:/app/uploads
+      # 预置 ONNX 嵌入模型，避免容器启动时从国外 S3 下载超时
+      - ./models:/root/.cache/chroma/onnx_models
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: research-frontend
+    restart: unless-stopped
+    ports:
+      # 8080 避开 80 端口备案限制
+      - "8080:80"
+    volumes:
+      - ./deploy/.htpasswd:/etc/nginx/.htpasswd:ro
+    depends_on:
+      - backend

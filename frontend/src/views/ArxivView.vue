@@ -20,14 +20,27 @@
 
     <div v-if="papers.length" class="results">
       <div class="results-header">
-        <h3>📑 找到 {{ papers.length }} 篇论文</h3>
+        <h3>
+          📑 找到 {{ papers.length }} 篇论文
+          <span v-if="!isSearch && skippedCount > 0" class="skipped-note">
+            （本次已过滤 {{ skippedCount }} 篇已入库）
+          </span>
+        </h3>
         <button class="btn btn-ghost" @click="saveAll">💾 全部入库</button>
       </div>
 
-      <div v-for="(p, i) in papers" :key="i" class="paper-card">
+      <div
+        v-for="(p, i) in papers"
+        :key="i"
+        class="paper-card"
+        :class="{ 'in-library': p.in_library }"
+      >
         <div class="paper-header">
           <span class="arxiv-id">[{{ p.arxiv_id || `#${i + 1}` }}]</span>
           <span class="cats" v-if="p.categories">{{ p.categories.join(', ') }}</span>
+          <span v-if="p.in_library" class="library-badge" :title="'库内: ' + (p.matched_title || p.title)">
+            📚 已入库
+          </span>
         </div>
         <h4 class="paper-title">{{ p.title }}</h4>
         <div class="paper-authors">{{ formatAuthors(p.authors) }}</div>
@@ -35,9 +48,15 @@
         <div class="paper-links">
           <a v-if="p.pdf_url" :href="p.pdf_url" target="_blank" class="link pdf">📄 PDF</a>
           <a v-if="p.abs_url" :href="p.abs_url" target="_blank" class="link abs">📎 Abstract</a>
-          <button class="link save" @click="saveOne(p, i)" :disabled="savingIdx === i">
+          <button
+            v-if="!p.in_library"
+            class="link save"
+            @click="saveOne(p, i)"
+            :disabled="savingIdx === i"
+          >
             {{ savingIdx === i ? '⏳ 入库中…' : '💾 入库' }}
           </button>
+          <span v-else class="link saved">✅ 已在库中</span>
         </div>
       </div>
     </div>
@@ -70,6 +89,7 @@ const loading = ref(false)
 const isSearch = ref(true)
 const searched = ref(false)
 const savingIdx = ref(-1)
+const skippedCount = ref(0)
 
 const formatAuthors = (authors) => {
   if (!authors || !authors.length) return ''
@@ -82,6 +102,7 @@ const search = async () => {
   loading.value = true
   isSearch.value = true
   papers.value = []
+  skippedCount.value = 0
   searched.value = true
   try {
     const r = await axios.post('/api/arxiv/search', { query: query.value, max_results: 10 })
@@ -100,6 +121,7 @@ const daily = async () => {
   try {
     const r = await axios.get('/api/arxiv/daily')
     papers.value = r.data.papers
+    skippedCount.value = r.data.skipped_count || 0
   } catch (e) {
     alert('加载失败: ' + e.message)
   } finally {
@@ -108,7 +130,6 @@ const daily = async () => {
 }
 
 const saveOne = async (p, idx) => {
-  // arXiv PDF 下载 → 临时文件 → upload
   if (!p.pdf_url) return alert('这篇没有 PDF 链接')
   if (savingIdx.value !== -1) return
   savingIdx.value = idx
@@ -120,15 +141,26 @@ const saveOne = async (p, idx) => {
     const d = r.data
     if (d.status === 'duplicate') {
       alert('⚠️ 已存在于库中，跳过重复入库：' + (d.title || p.title))
+      markSaved(idx, d.title || p.title)
     } else if (d.detections && d.detections.length) {
       alert('✅ 已入库：' + (d.title || p.title) + '\n\n' + d.detections[0].suggestion)
+      markSaved(idx, d.title || p.title)
     } else {
       alert('✅ 已入库：' + (d.title || p.title))
+      markSaved(idx, d.title || p.title)
     }
   } catch (e) {
     alert('入库失败: ' + e.message)
   } finally {
     savingIdx.value = -1
+  }
+}
+
+// 入库成功后即时把这张卡片标成已入库状态（不用重新搜）
+const markSaved = (idx, matchedTitle) => {
+  if (papers.value[idx]) {
+    papers.value[idx].in_library = true
+    papers.value[idx].matched_title = matchedTitle || papers.value[idx].title
   }
 }
 
@@ -172,6 +204,7 @@ const saveAll = async () => {
   margin-bottom: 14px;
 }
 .results-header h3 { margin: 0; font-size: 16px; color: #1a1a2e; }
+.skipped-note { font-size: 12px; color: #888; font-weight: normal; margin-left: 6px; }
 
 .paper-card {
   background: #fff; border-radius: 10px; padding: 18px;
@@ -179,6 +212,16 @@ const saveAll = async () => {
   border-left: 4px solid #4361ee; transition: all 0.2s;
 }
 .paper-card:hover { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1); transform: translateY(-1px); }
+.paper-card.in-library {
+  background: #f7f8fa; border-left-color: #9ca3af; opacity: 0.78;
+}
+.paper-card.in-library:hover { opacity: 0.9; }
+
+.library-badge {
+  background: #e0f2fe; color: #0369a1; font-size: 11px;
+  padding: 2px 8px; border-radius: 10px; font-weight: 600;
+  margin-left: auto; cursor: help;
+}
 
 .paper-header { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
 .arxiv-id {
@@ -209,4 +252,8 @@ const saveAll = async () => {
 }
 .link.save:hover { background: #2e7d32; color: #fff; }
 .link.save:disabled { opacity: 0.6; cursor: not-allowed; }
+.link.saved {
+  background: #f3f4f6; color: #6b7280; font-size: 12px;
+  padding: 5px 12px; border-radius: 14px;
+}
 </style>

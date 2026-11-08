@@ -32,7 +32,7 @@ async def search(req: SearchReq):
 
 @router.get("/daily")
 async def daily():
-    return {"papers": get_daily_papers()}
+    return get_daily_papers()
 
 
 @router.post("/download")
