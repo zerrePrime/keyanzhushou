@@ -1,10 +1,10 @@
 {
   "base_url": "http://127.0.0.1:8080",
-  "time": "2026-11-08 12:52:10",
+  "time": "2026-11-08 13:20:41",
   "pass_rate": 100.0,
-  "passed": 9,
-  "runnable": 9,
-  "skipped": 1,
+  "passed": 10,
+  "runnable": 10,
+  "skipped": 0,
   "cases": [
     {
       "case": "T1 矢量论文解析",
@@ -43,8 +43,8 @@
     },
     {
       "case": "T8 RAG 问答",
-      "state": "SKIP",
-      "detail": "检索正常（8 条引用），但 LLM Key 未配置"
+      "state": "PASS",
+      "detail": "回答 238 字符 / 引用 8 篇"
     },
     {
       "case": "T9 引用图谱",
