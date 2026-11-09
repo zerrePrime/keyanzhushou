@@ -108,7 +108,10 @@
       const task = pdfjsLib.getDocument({ url: url });
       if (onProgress) {
         task.onProgress = function (p) {
-          if (p && p.total) onProgress(Math.round((p.loaded / p.total) * 100));
+          // loaded 可能超过 total（分块请求累加），必须夹到 100，否则会显示 101%
+          if (p && p.total) {
+            onProgress(Math.min(100, Math.round((p.loaded / p.total) * 100)));
+          }
         };
       }
       return task.promise.then(function (doc) {
