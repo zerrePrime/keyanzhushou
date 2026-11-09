@@ -525,6 +525,8 @@ def extract_future_work(topic: str = "", top_k: int = 12) -> dict:
 
     docs, metas = [], []
     seen = set()
+    MAX_PER_PAPER = 2
+    per_paper = {}
     for q in queries:
         results = collection.query(
             query_texts=[q],
@@ -537,11 +539,17 @@ def extract_future_work(topic: str = "", top_k: int = 12) -> dict:
             results.get("distances", [[]])[0] or [],
         ):
             key = meta.get("source", "")
+            pid = meta.get("paper_id", "")
             if key in seen or dist >= 0.9:
+                continue
+            # 每篇论文最多取 2 条，避免大文档淹没小论文
+            if pid and per_paper.get(pid, 0) >= MAX_PER_PAPER:
                 continue
             seen.add(key)
             docs.append(doc)
             metas.append(meta)
+            if pid:
+                per_paper[pid] = per_paper.get(pid, 0) + 1
 
     # 优先保留明确提到 future/limitation 的段落，其余按检索顺序补足
     hinted = [(d, m) for d, m in zip(docs, metas) if _FUTURE_HINT_RE.search(d)]
