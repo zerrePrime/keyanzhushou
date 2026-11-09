@@ -87,22 +87,89 @@ def find_foundation_papers(G: nx.DiGraph, titles: dict) -> list:
 
 
 def generate_auto_survey() -> str:
-    """自动综述：把所有论文标题汇总喂 LLM"""
+    """
+    自动综述：按论文取一段代表性正文喂 LLM。
+    只喂标题会得到与文献库无关的通用套话，喂正文片段才能让综述真正基于库内内容；
+    还要避开版权页/参考文献列表这类模板文字，否则会把出版社、许可证或书目条目写进综述。
+    """
+    import re as _re
     from app.rag.chroma_client import get_collection
     from app.rag.qa_service import llm_chat
 
     collection = get_collection()
-    results = collection.get(include=["metadatas"])
-    titles = list({m.get("title", "") for m in results["metadatas"] if m.get("title")})
+    results = collection.get(include=["documents", "metadatas"])
 
-    if not titles:
+    docs = results.get("documents") or []
+    metas = results.get("metadatas") or []
+
+    # 版权/许可/出版类模板词：出现即认为这段不适合作为该文献的代表内容
+    boiler_terms = ("copyright", "©", "all rights reserved", "license", "licence",
+                    "permission", "isbn", "mit press", "springer", "elsevier",
+                    "版权所有", "许可", "出版社")
+
+    def is_bad_chunk(raw: str, text: str) -> bool:
+        """参考文献列表、目录、索引、表格这类片段不适合当作文献的代表内容。"""
+        low = text.lower()
+        if low.count("et al") >= 3:
+            return True
+        if low.count("proceedings") >= 2 or low.count("arxiv") >= 4:
+            return True
+        if len(_re.findall(r"(?:19|20)\d{2}", text)) >= 8:
+            return True
+        if sum(c.isdigit() for c in text) / len(text) > 0.06:
+            return True
+        # 版式判断：目录/索引一行一个短条目，正文行明显更长
+        lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+        if lines:
+            avg_len = sum(len(ln) for ln in lines) / len(lines)
+            numbered = sum(1 for ln in lines if _re.match(r"\d+(\.\d+)*\s", ln))
+            if avg_len < 40 or numbered >= 6:
+                return True
+        return "…" in text or "......" in text
+
+    # 每篇论文选一段作为代表：摘要段最优，其次正文较长的段；版权页排最后
+    best = {}
+    for doc, meta in zip(docs, metas):
+        title = (meta.get("title") or "").strip()
+        if not title or not doc:
+            continue
+        try:
+            page = int(meta.get("page", 999))
+        except (TypeError, ValueError):
+            page = 999
+        text = _re.sub(r"\s+", " ", doc).strip()
+        if len(text) < 60:
+            continue  # 页眉页脚、目录条目这类碎片
+        if is_bad_chunk(doc, text):
+            continue  # 参考文献列表、目录、索引
+        # 用词边界匹配，避免把 abstractive summarization 这类词误判成摘要
+        is_abstract = 0 if (_re.search(r"\babstract\b", text.lower()) or "摘要" in text) else 1
+        boiler = 1 if any(t in text.lower() or t in text for t in boiler_terms) else 0
+        key = (is_abstract, boiler, -min(len(text), 1500), page)
+        if title not in best or key < best[title][0]:
+            best[title] = (key, text)
+
+    if not best:
         return "文献库为空，无法生成综述"
 
-    prompt = f"""请基于以下论文列表，写一段这个研究方向的综述：
+    # 摘要前的标题、作者、单位会占满截断额度，从 Abstract 标题处开始取
+    def snippet(text: str) -> str:
+        m = _re.search(r"\babstract\b", text, _re.I)
+        if m and m.start() > 0:
+            return text[m.start():m.start() + 700]
+        return text[:800]
 
-论文列表：
-{chr(10).join(f"- {t}" for t in titles[:20])}
+    entries = [f"### {title}\n{snippet(text)}" for title, (key, text) in list(best.items())[:8]]
 
-要求：150-300字，分起源、发展、前沿三部分。"""
+    prompt = f"""以下是文献库中全部文献的代表性正文片段（共 {len(entries)} 段）：
 
-    return llm_chat(prompt, system="你是一个学术综述专家")
+{chr(10).join(entries)}
+
+请仅依据上述片段写一段该研究方向的综述，要求：
+1. 150-300 字，分「起源」「发展」「前沿」三部分；
+2. 每条论断都必须来自上述片段的原文内容，并在括号中标注对应标题；
+3. 不得依据标题推测论文内容，片段没写到的主题一律不要出现；
+4. 若某一部分在片段中找不到依据，该部分正文只写「现有片段未覆盖」，不要补充其他内容；
+5. 不要描述版权、许可、出版或版本发布信息，这些不属于研究进展。"""
+
+    return llm_chat(prompt, system="你是一个严谨的学术综述专家，只依据给定材料写作，不添加材料外的事实。")
