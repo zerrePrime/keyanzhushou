@@ -78,13 +78,47 @@ ZH_TO_EN = {
     "Transformer": "Transformer", "BERT": "BERT", "GPT": "GPT",
 }
 
-def zh_to_en_query(query: str) -> str:
-    """中文问题里的关键词翻译成英文，用于检索英文论文库"""
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+_TRANSLATE_CACHE: dict[str, str] = {}
+
+
+def _keyword_translate(query: str) -> str:
+    """逐词替换式翻译，作为 LLM 翻译失败时的兜底"""
     result = query
     for zh, en in ZH_TO_EN.items():
         result = result.replace(zh, en)
-    # 如果没翻出任何英文关键词，就返回原 query
     return result if any(c.isascii() and c.isalpha() for c in result) else query
+
+
+def zh_to_en_query(query: str) -> str:
+    """
+    中文问题翻译成完整英文检索语句，用于检索英文论文库。
+    优先调用 LLM 翻译（结果缓存），失败时退回关键词替换。
+    逐词替换会得到"decoder由几个相同的层组成"这类中英混杂查询，向量质量很差。
+    """
+    if not _CJK_RE.search(query):
+        return query
+    cached = _TRANSLATE_CACHE.get(query)
+    if cached:
+        return cached
+
+    system = (
+        "你是学术检索助手。把用户的中文问题翻译成一句简洁的英文学术检索语句，"
+        "保留专业术语原文。只输出译文本身，不要解释、不要加引号。"
+    )
+    out = llm_chat(query, system).strip().strip('"“”「」')
+    # 翻译失败 / 仍含中文 / 异常长，一律退回关键词替换
+    if (
+        not out
+        or out.startswith("[LLM 调用失败")
+        or _CJK_RE.search(out)
+        or len(out) > 300
+    ):
+        return _keyword_translate(query)
+
+    if len(_TRANSLATE_CACHE) < 500:
+        _TRANSLATE_CACHE[query] = out
+    return out
 
 
 # ====== 核心 RAG 检索 ======
