@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 from app.services.paper_service import upload_paper, list_papers, delete_paper
 from app.rag.pdf_parser import extract_outline, extract_page_text
 from app.config import settings
@@ -29,7 +30,8 @@ async def upload(file: UploadFile = File(...)):
         tmp.write(await file.read())
         tmp_path = tmp.name
     try:
-        return upload_paper(tmp_path, file.filename)
+        # 解析与向量化是分钟级阻塞操作，放到线程池避免卡死事件循环
+        return await run_in_threadpool(upload_paper, tmp_path, file.filename)
     finally:
         os.unlink(tmp_path)
 

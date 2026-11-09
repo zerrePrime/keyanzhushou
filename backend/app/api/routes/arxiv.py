@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.services.arxiv_service import search_arxiv, get_daily_papers
@@ -35,21 +36,15 @@ async def daily():
     return get_daily_papers()
 
 
-@router.post("/download")
-async def download(req: DownloadReq):
-    """下载 arXiv PDF → 解析 → 去重检测 → 入库"""
-    parsed = urllib.parse.urlparse(req.url)
-    if parsed.scheme not in ("http", "https") or not (parsed.hostname or "").endswith("arxiv.org"):
-        raise HTTPException(status_code=400, detail="只支持 arXiv 的 PDF 链接")
+def _download_and_ingest(url: str, name: str, max_bytes: int):
+    """同步下载 + 解析入库。
 
-    name = Path(req.filename).name or Path(parsed.path).name or "paper.pdf"
-    if not name.lower().endswith(".pdf"):
-        name += ".pdf"
-
-    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    下载和解析是分钟级阻塞操作，必须放到线程池执行：
+    若直接跑在事件循环里，整个后端（列表、健康检查、问答）都会失去响应。
+    """
     tmp_path = None
     try:
-        with urllib.request.urlopen(req.url, timeout=60) as resp:
+        with urllib.request.urlopen(url, timeout=60) as resp:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 tmp_path = tmp.name
                 written = 0
@@ -72,3 +67,18 @@ async def download(req: DownloadReq):
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+
+@router.post("/download")
+async def download(req: DownloadReq):
+    """下载 arXiv PDF → 解析 → 去重检测 → 入库"""
+    parsed = urllib.parse.urlparse(req.url)
+    if parsed.scheme not in ("http", "https") or not (parsed.hostname or "").endswith("arxiv.org"):
+        raise HTTPException(status_code=400, detail="只支持 arXiv 的 PDF 链接")
+
+    name = Path(req.filename).name or Path(parsed.path).name or "paper.pdf"
+    if not name.lower().endswith(".pdf"):
+        name += ".pdf"
+
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    return await run_in_threadpool(_download_and_ingest, req.url, name, max_bytes)
