@@ -15,6 +15,21 @@
   let canvasEl = null;
   let textLayerEl = null;
 
+  // 已解析文档的 LRU 缓存：切回刚看过的论文时无需重新下载与解析
+  // 只保留 2 篇，避免长文档占用过多浏览器内存
+  const DOC_CACHE = new Map();
+  const CACHE_LIMIT = 2;
+
+  function dropCacheExcept(keepUrl) {
+    while (DOC_CACHE.size > CACHE_LIMIT) {
+      const oldest = DOC_CACHE.keys().next().value;
+      if (oldest === keepUrl) break;
+      const doc = DOC_CACHE.get(oldest);
+      DOC_CACHE.delete(oldest);
+      try { doc.destroy(); } catch (e) { /* 已被 pdf.js 释放 */ }
+    }
+  }
+
   // 文本层：叠在 canvas 上，让 PDF 文字可被选中（划词翻译用）
   function getTextLayer() {
     if (!canvasEl || !canvasEl.parentNode) return null;
@@ -73,15 +88,46 @@
   }
 
   window.PDFViewer = {
-    open: function (url, canvasElement) {
+    // onProgress 回调收到 0-100 的下载/解析进度
+    open: function (url, canvasElement, onProgress) {
       canvasEl = canvasElement;
-      currentDoc = null;
       currentPageNum = 1;
-      return pdfjsLib.getDocument({ url: url }).promise.then(function (doc) {
+
+      const cached = DOC_CACHE.get(url);
+      if (cached) {
+        // 命中缓存：LRU 置顶，直接复用已解析的文档
+        DOC_CACHE.delete(url);
+        DOC_CACHE.set(url, cached);
+        currentDoc = cached;
+        totalPages = cached.numPages;
+        if (onProgress) onProgress(100);
+        return Promise.resolve(totalPages);
+      }
+
+      currentDoc = null;
+      const task = pdfjsLib.getDocument({ url: url });
+      if (onProgress) {
+        task.onProgress = function (p) {
+          if (p && p.total) onProgress(Math.round((p.loaded / p.total) * 100));
+        };
+      }
+      return task.promise.then(function (doc) {
         currentDoc = doc;
         totalPages = doc.numPages;
+        DOC_CACHE.set(url, doc);
+        dropCacheExcept(url);
         return totalPages;
       });
+    },
+    // 切换论文时立即清掉上一份的画面，避免加载期间仍显示旧 PDF
+    clear: function () {
+      currentDoc = null;
+      totalPages = 0;
+      if (canvasEl) {
+        canvasEl.width = 0;
+        canvasEl.height = 0;
+      }
+      clearTextLayer();
     },
     render: function (pageNum) {
       return renderPage(pageNum);

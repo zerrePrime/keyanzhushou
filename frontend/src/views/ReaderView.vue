@@ -56,9 +56,12 @@
       <!-- 中：PDF 渲染（含可选中文本层） -->
       <div class="card pdf-card">
         <h3>📄 原文（第 {{ currentPage }} 页）</h3>
-        <div v-if="loadingPdf" class="loading">⏳ 加载 PDF 中...</div>
+        <div v-if="loadingPdf" class="loading">
+          ⏳ 加载 PDF 中...<span v-if="loadingProgress"> {{ loadingProgress }}%</span>
+        </div>
         <div v-else-if="rendering" class="loading">🎨 渲染中...</div>
-        <div class="pdf-scroll">
+        <!-- v-show 而非 v-if：canvas 节点必须常驻，PDF.js 才能在加载完成后往这里绘制 -->
+        <div class="pdf-scroll" v-show="hasDoc && !loadingPdf">
           <div class="pdf-stage">
             <canvas ref="canvasRef" class="pdf-canvas"></canvas>
           </div>
@@ -153,6 +156,7 @@ const scale = ref(1.2)
 
 const canvasRef = ref(null)
 const loadingPdf = ref(false)
+const loadingProgress = ref(0)
 const rendering = ref(false)
 const pageText = ref('')
 const pageSummary = ref('')
@@ -198,7 +202,11 @@ onUnmounted(() => {
 // 选择论文 → 加载 PDF + 目录
 const loadPaper = async () => {
   if (!selectedId.value) return
+  // 先把上一份 PDF 的画面擦掉，否则新文件加载期间页面里仍是旧论文
+  viewer.clear()
+  totalPages.value = 0
   loadingPdf.value = true
+  loadingProgress.value = 0
   pageSummary.value = ''
   pageText.value = ''
   selectionTranslation.value = ''
@@ -213,7 +221,9 @@ const loadPaper = async () => {
   try {
     await nextTick()  // 确保 canvas 已挂载
     const url = `/api/papers/${selectedId.value}/file`
-    const pages = await viewer.open(url, canvasRef.value)
+    const pages = await viewer.open(url, canvasRef.value, (p) => {
+      loadingProgress.value = p
+    })
     totalPages.value = pages
     hasDoc.value = true
     const result = await viewer.render(1)
@@ -227,6 +237,7 @@ const loadPaper = async () => {
     hasDoc.value = false
   } finally {
     loadingPdf.value = false
+    loadingProgress.value = 0
   }
 }
 

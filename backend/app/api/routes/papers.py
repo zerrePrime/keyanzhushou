@@ -46,13 +46,18 @@ async def delete(paper_id: str):
 
 @router.get("/{paper_id}/file")
 async def get_file(paper_id: str):
-    """获取已上传的 PDF 文件（PDF.js 渲染用）"""
+    """获取已上传的 PDF 文件（PDF.js 渲染用）
+
+    paper_id 对应固定文件内容，可放心让浏览器长缓存：
+    切回看过的论文时直接从磁盘缓存读取，无需重新下载。
+    """
     pdf = _resolve_pdf(paper_id)
     return FileResponse(
         pdf,
         media_type="application/pdf",
         filename=pdf.name,
         content_disposition_type="inline",
+        headers={"Cache-Control": "public, max-age=86400"},
     )
 
 
