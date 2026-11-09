@@ -9,6 +9,7 @@ router = APIRouter(prefix="/api/qa", tags=["qa"])
 class QuestionReq(BaseModel):
     question: str
     mode: str = "single"
+    paper_id: str | None = None   # 传入则只在指定论文内检索（单篇提问）
 
 
 class TranslateReq(BaseModel):
@@ -21,7 +22,7 @@ class TranslateReq(BaseModel):
 async def ask(req: QuestionReq):
     if req.mode == "compare":
         return multi_paper_compare(req.question)
-    return answer_with_sources(req.question)
+    return answer_with_sources(req.question, req.paper_id)
 
 
 @router.post("/translate")

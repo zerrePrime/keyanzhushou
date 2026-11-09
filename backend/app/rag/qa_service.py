@@ -88,9 +88,10 @@ def zh_to_en_query(query: str) -> str:
 
 
 # ====== 核心 RAG 检索 ======
-def retrieve_context(query: str, top_k: int = 5) -> tuple[list[str], list[dict]]:
+def retrieve_context(query: str, top_k: int = 5, paper_id: str = None) -> tuple[list[str], list[dict]]:
     """
     检索最相关的 top_k 个段落
+    paper_id 传入时只在指定论文内检索（单篇模式），否则全库检索
     返回 (文档列表, 元数据列表)
     """
     collection = get_collection()
@@ -104,10 +105,13 @@ def retrieve_context(query: str, top_k: int = 5) -> tuple[list[str], list[dict]]
     best_docs, best_meta, best_dist = [], [], []
     seen_ids = set()
 
+    where = {"paper_id": paper_id} if paper_id else None
+
     for q in queries:
         results = collection.query(
             query_texts=[q],
             n_results=top_k,
+            where=where,
             include=["documents", "metadatas", "distances"],
         )
         docs = results["documents"][0] if results["documents"] else []
@@ -126,11 +130,12 @@ def retrieve_context(query: str, top_k: int = 5) -> tuple[list[str], list[dict]]
 
 
 # ====== 生成带溯源的回答 ======
-def answer_with_sources(query: str) -> dict:
+def answer_with_sources(query: str, paper_id: str = None) -> dict:
     """
     RAG 主函数：提问 → 检索 → 生成 → 附带来源
+    paper_id 传入时仅在该论文范围内检索（单篇提问），否则全库检索
     """
-    documents, metadatas = retrieve_context(query, top_k=5)
+    documents, metadatas = retrieve_context(query, top_k=5, paper_id=paper_id)
 
     if not documents:
         return {
