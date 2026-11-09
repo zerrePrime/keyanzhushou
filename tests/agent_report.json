@@ -1,0 +1,38 @@
+{
+  "base_url": "http://127.0.0.1:8080",
+  "time": "2026-11-09 10:12:33",
+  "passed": 6,
+  "total": 6,
+  "cases": [
+    {
+      "case": "A1 工具清单",
+      "state": "PASS",
+      "detail": "7 个工具"
+    },
+    {
+      "case": "A2 健康检查",
+      "state": "PASS",
+      "detail": "{'status': 'ok', 'agent': 'langgraph_stategraph'}"
+    },
+    {
+      "case": "A3 单工具规划",
+      "state": "PASS",
+      "detail": "工具=['rag_qa', 'list_papers', 'auto_survey'] / 3 轮 / 13s"
+    },
+    {
+      "case": "A4 多工具串联",
+      "state": "PASS",
+      "detail": "工具=['graph_analyze', 'future_work', 'auto_survey'] / 3 轮 / 16s"
+    },
+    {
+      "case": "A5 多轮会话记忆",
+      "state": "PASS",
+      "detail": "第一轮 176 字 / 第二轮 140 字"
+    },
+    {
+      "case": "A6 外部检索工具",
+      "state": "PASS",
+      "detail": "工具=['arxiv_search'] / 2 轮 / 6s"
+    }
+  ]
+}
