@@ -27,7 +27,7 @@ import time
 from langgraph.graph import StateGraph, END
 from langchain_core.tools import tool
 
-from app.rag.qa_service import answer_with_sources, llm_chat, extract_future_work
+from app.rag.qa_service import answer_with_sources, llm_chat, extract_future_work, translate_text
 from app.services.arxiv_service import search_arxiv
 from app.services.graph_service import build_citation_graph, generate_auto_survey
 from app.services.paper_service import list_papers as _svc_list_papers
@@ -122,7 +122,7 @@ def list_papers() -> str:
 
 @tool
 def future_work(query: str) -> str:
-    """从文献库论文的结论、局限性与展望中提取未来研究方向。当用户问论文的不足、未来工作、可研究方向、选题灵感时用这个。"""
+    """从文献库论文的结论、局限性与展望中提取未来研究方向。当用户问论文的不足、未来工作、可研究方向、选题灵感、limitations 时用这个。"""
     result = extract_future_work(query)
     kept = result.get("directions") or []
     excluded = result.get("excluded") or []
@@ -144,7 +144,33 @@ def future_work(query: str) -> str:
     return f"未来研究方向：\n{lines}{tail}\n来源：{srcs}"
 
 
-ALL_TOOLS = [rag_qa, arxiv_search, graph_analyze, auto_survey, write_framework, list_papers, future_work]
+@tool
+def translate(query: str) -> str:
+    """把一段文本翻译成中文或英文。query 格式：'翻译方向 | 要翻译的文本'，方向填 'zh' 或 'en'，也接受自然语言如 '译成中文'/'翻译成英文'。"""
+    try:
+        text = query
+        target = "zh"
+        # 解析方向
+        m = re.match(r"^\s*(zh|en)\s*[|：:\s]+(.+)$", query, re.I)
+        if m:
+            target = m.group(1).lower()
+            text = m.group(2)
+        else:
+            low = query.lower()
+            if "译为英文" in query or "翻译成英文" in query or "译成英文" in query or "translate to english" in low or "to en" in low:
+                target = "en"
+            elif "译成中文" in query or "翻译成中文" in query or "译成中文" in query or "translate to chinese" in low or "to zh" in low:
+                target = "zh"
+        text = text.strip().strip("'\"“”")
+        if not text:
+            return "翻译失败：文本为空"
+        result = translate_text(text, target=target, max_segments=6)
+        return result.get("text", "翻译失败")
+    except Exception as e:
+        return f"翻译失败: {str(e)[:200]}"
+
+
+ALL_TOOLS = [rag_qa, arxiv_search, graph_analyze, auto_survey, write_framework, list_papers, future_work, translate]
 TOOLS_MAP = {t.name: t for t in ALL_TOOLS}
 
 
@@ -238,7 +264,8 @@ def agent_decide(state: AgentState) -> AgentState:
     # 终止条件 C（最小必要工具原则）：简单信息类问题，一次库内检索即可回答，
     # 不再额外调用图谱/综述等重工具，避免过度规划拖慢响应并浪费 token
     MULTI_STEP_HINTS = ("分析", "关系", "图谱", "综述", "未来", "方向", "检索", "最新",
-                        "对比", "演进", "多篇", "脉络")
+                        "对比", "演进", "多篇", "脉络", "翻译", "译文", "译为",
+                        "limitation", "limitations", "不足", "局限")
     if "rag_qa" in done_tools and not any(h in user_input for h in MULTI_STEP_HINTS):
         return {
             "next_action": "FINISH",
@@ -269,9 +296,14 @@ def agent_decide(state: AgentState) -> AgentState:
 - 用户的问题是通用知识/概念解释类（如「XX 是什么」「XX 有哪些方法」），与本地文献库内容无直接关系，也不需要查最新论文 → action 填 "DIRECT"
 - 现有信息已足够回答 → action 填 "FINISH"（**默认优先选这条**）
 - 遵循「最小必要工具」原则：已执行结果足以回答就必须 FINISH，不要为了"更全面"再多调工具
-- 只有当用户明确要求引用图谱、综述、未来方向、最新论文等**多步分析**时，才继续选下一个工具
+- 只有当用户明确要求引用图谱、综述、未来方向、最新论文、翻译等**多步分析**时，才继续选下一个工具
 - 严禁调用与当前问题无关的工具（例如用户只是要总结单篇论文贡献时，不要调 auto_survey）
 - 还缺文献库/图谱/arXiv 信息 → 从上面选一个工具继续补充
+
+**同义词路由**（query 里要体现）：
+- limitation / limitations / 不足 / 局限 / 展望 → 调用 future_work
+- 翻译 / translate / 译为 / 译文 → 调用 translate
+- 最新 / 年份（如 2024、2025）/ 新论文 → 调用 arxiv_search
 
 严格按要求输出 JSON，不要任何其他文字：
 {{"action": "工具名或FINISH或DIRECT", "query": "传给该工具的查询语句", "intent": "选择它的理由，15字以内"}}
