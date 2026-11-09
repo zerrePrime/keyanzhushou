@@ -3,7 +3,10 @@
 改进：从 Chroma metadata 里读真正的 references 字段做引用匹配，
 不再是全连接 baseline。
 """
+import re
+
 import networkx as nx
+
 from app.rag.chroma_client import get_collection
 
 
@@ -32,7 +35,11 @@ def build_citation_graph() -> dict:
         G.add_node(pid, title=info["title"])
 
     # ====== 真正的引用匹配 ======
-    titles = {pid: info["title"].lower() for pid, info in papers_seen.items()}
+    def norm(text: str) -> str:
+        return " ".join(re.sub(r"[^a-z0-9\u4e00-\u9fff]+", " ", (text or "").lower()).split())
+
+    titles = {pid: norm(info["title"]) for pid, info in papers_seen.items()}
+    tokens = {pid: {w for w in t.split() if len(w) > 2} for pid, t in titles.items()}
 
     for src_id, info in papers_seen.items():
         refs_raw = info.get("references", "")
@@ -42,14 +49,17 @@ def build_citation_graph() -> dict:
         ref_lines = [r.strip() for r in refs_raw.split("||") if r.strip()]
 
         for ref_line in ref_lines:
-            ref_lower = ref_line.lower()
+            ref_words = set(norm(ref_line).split())
 
-            # 策略 1: 标题包含匹配（如果 A 的参考文献里出现了 B 的标题关键词 → A 引 B）
-            for tgt_id, tgt_title in titles.items():
-                if tgt_id == src_id or not tgt_title:
+            for tgt_id, tgt_tokens in tokens.items():
+                if tgt_id == src_id or not tgt_tokens or len(tgt_tokens) < 2:
                     continue
-                # 标题至少有 3 个连续字符匹配，且被引标题长度 > 5
-                if len(tgt_title) > 5 and tgt_title[:8] in ref_lower:
+                # 同一篇论文的不同版本（v1/v7/扫描件）不算互相引用
+                if titles[tgt_id] == titles[src_id]:
+                    continue
+                # 被引标题的词元在一条参考文献中重合度 >= 75% 才算引用
+                hit = sum(1 for w in tgt_tokens if w in ref_words)
+                if hit / len(tgt_tokens) >= 0.75:
                     G.add_edge(src_id, tgt_id, weight=1, method="title_match")
                     break  # 一条 reference 最多匹配一条
 

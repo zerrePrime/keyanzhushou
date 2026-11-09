@@ -18,6 +18,48 @@ OCR_LANG = os.getenv("OCR_LANG", "eng+chi_sim")
 # 每页文本少于此字符数即视为"没有文本层"
 OCR_MIN_TEXT_PER_PAGE = 20
 
+# 参考文献条目编号：[1] / 1.
+_REF_ITEM_RE = re.compile(r"^(?:\[\d{1,4}\]|\d{1,4}\.)\s")
+_REF_YEAR_RE = re.compile(r"(?:19|20)\d{2}")
+
+
+def _extract_references(text: str) -> List[str]:
+    """
+    抽出参考文献条目。列表有两种排法：
+    带编号（[1] ...）和作者开头的段落式（... In NIPS, 2012.），后者靠条目末尾年份切分。
+    """
+    entries, cur = [], ""
+    for line in text.split("\n"):
+        line = " ".join(line.split())
+        if not line or len(line) < 3 or line.isdigit():
+            continue
+        if _REF_ITEM_RE.match(line):
+            if cur:
+                entries.append(cur[:220])
+            cur = line
+        else:
+            cur = f"{cur} {line}".strip() if cur else line
+        # 条目以年份（可带句点）结尾，或已堆得过长，则收一条
+        if _REF_YEAR_RE.search(cur[-30:]) and (cur.endswith(".") or len(cur) > 260):
+            entries.append(cur[:220])
+            cur = ""
+        if len(entries) >= 80:
+            break
+    if cur.strip() and len(entries) < 80:
+        entries.append(cur[:220])
+    return entries
+
+
+def _find_reference_start(text: str) -> int:
+    """按独立标题行定位参考文献区，返回起始行下标；找不到返回 -1。"""
+    lines = text.split("\n")
+    start = -1
+    for i, ln in enumerate(lines):
+        s = ln.strip().lower().rstrip(":.")
+        if s in ("references", "bibliography", "reference"):
+            start = i
+    return start
+
 
 @dataclass
 class ParsedPaper:
@@ -99,18 +141,28 @@ def parse_pdf(filepath: str) -> ParsedPaper:
                     paper.authors = [first_lines[pos + 1][:100]]
         else:
             text_blocks = first_page.get_text("dict")["blocks"]
+            lines = []
             for block in text_blocks:
                 if block["type"] == 0:
                     for line in block["lines"]:
                         spans = [s for s in line["spans"] if s["text"].strip()]
-                        if not spans:
-                            continue
-                        txt = _join_spans(spans)
-                        sz = max(float(s["size"]) for s in spans)
-                        if sz >= 14 and not paper.title:
-                            paper.title = txt
-                        elif paper.title and not paper.authors:
-                            paper.authors = [txt]
+                        if spans:
+                            lines.append(
+                                (max(float(s["size"]) for s in spans), _join_spans(spans))
+                            )
+            # 标题常跨多行且字号一致，逐行拼接；作者行字号明显更小才收作者
+            title_size = 0.0
+            for sz, txt in lines:
+                if not paper.title:
+                    if sz >= 14:
+                        paper.title, title_size = txt, sz
+                    continue
+                if paper.authors:
+                    break
+                if sz >= title_size * 0.9:
+                    paper.title = f"{paper.title} {txt}"
+                else:
+                    paper.authors = [txt]
 
     # 全文切块（滑窗）；扫描件逐页 OCR，正常 PDF 直接取文本层
     CHUNK = 800
@@ -142,24 +194,12 @@ def parse_pdf(filepath: str) -> ParsedPaper:
             paper.chunks.append({"text": chunk_text, "page": majority})
         start += CHUNK - OVERLAP
 
-    # 参考文献
-    if scanned:
-        low = all_text.lower()
-        idx = max(low.rfind("references"), low.rfind("bibliography"))
-        if idx != -1:
-            for line in all_text[idx:].split("\n")[1:]:
-                line = line.strip()
-                if line and (line[0].isdigit() or line.startswith("[")) and len(line) > 10:
-                    paper.references.append(line[:200])
-    else:
-        for pn, page in enumerate(doc):
-            text = page.get_text("text")
-            if "references" in text.lower() or "bibliography" in text.lower():
-                for line in text.split("\n"):
-                    line = line.strip()
-                    if line and (line[0].isdigit() or line.startswith("[")) and len(line) > 10:
-                        paper.references.append(line[:200])
-                break
+    # 参考文献：以最后一个独立的 References/Bibliography 标题行为准
+    # （正文里也可能出现 references 一词，按字符串查找会定位到错误位置）
+    lines = all_text.split("\n")
+    ref_start = _find_reference_start(all_text)
+    if ref_start != -1:
+        paper.references = _extract_references("\n".join(lines[ref_start + 1:]))
 
     doc.close()
     return paper
@@ -308,7 +348,7 @@ def extract_page_text(filepath: str, page_num: int) -> str:
 def chunks_for_rag(paper: ParsedPaper) -> tuple:
     """转 Chroma 格式: (documents, metadatas, ids)"""
     docs, metas, ids = [], [], []
-    refs_str = "||".join(paper.references[:50])  # 最多存 50 条引用
+    refs_str = "||".join(paper.references[:80])  # 最多存 80 条引用
     for i, c in enumerate(paper.chunks):
         docs.append(c["text"])
         metas.append({
