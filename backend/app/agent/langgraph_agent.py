@@ -235,6 +235,20 @@ def agent_decide(state: AgentState) -> AgentState:
             }],
         }
 
+    # 终止条件 C（最小必要工具原则）：简单信息类问题，一次库内检索即可回答，
+    # 不再额外调用图谱/综述等重工具，避免过度规划拖慢响应并浪费 token
+    MULTI_STEP_HINTS = ("分析", "关系", "图谱", "综述", "未来", "方向", "检索", "最新",
+                        "对比", "演进", "多篇", "脉络")
+    if "rag_qa" in done_tools and not any(h in user_input for h in MULTI_STEP_HINTS):
+        return {
+            "next_action": "FINISH",
+            "thinking_trace": [{
+                "step": step_no, "intent": "已获得文献依据，问题不要求多步分析",
+                "tool": "FINISH", "query": "", "output_summary": "",
+                "elapsed_ms": 0, "status": "finish",
+            }],
+        }
+
     # 拼装已执行结果摘要，供 LLM 判断下一步
     history = ""
     if results:
@@ -253,7 +267,10 @@ def agent_decide(state: AgentState) -> AgentState:
 
 请判断下一步：
 - 用户的问题是通用知识/概念解释类（如「XX 是什么」「XX 有哪些方法」），与本地文献库内容无直接关系，也不需要查最新论文 → action 填 "DIRECT"
-- 现有信息已足够回答 → action 填 "FINISH"
+- 现有信息已足够回答 → action 填 "FINISH"（**默认优先选这条**）
+- 遵循「最小必要工具」原则：已执行结果足以回答就必须 FINISH，不要为了"更全面"再多调工具
+- 只有当用户明确要求引用图谱、综述、未来方向、最新论文等**多步分析**时，才继续选下一个工具
+- 严禁调用与当前问题无关的工具（例如用户只是要总结单篇论文贡献时，不要调 auto_survey）
 - 还缺文献库/图谱/arXiv 信息 → 从上面选一个工具继续补充
 
 严格按要求输出 JSON，不要任何其他文字：
@@ -263,6 +280,11 @@ def agent_decide(state: AgentState) -> AgentState:
 
     raw = llm_chat(prompt, system="你是任务规划器，只输出一个 JSON 对象，不要任何解释。").strip()
     action, query, intent = _parse_decision(raw, remain, done_tools, user_input)
+
+    # 兜底：尚无任何工具结果时 FINISH 没有内容可汇总（如指代型追问「那它呢」），
+    # 强制先检索本地文献库，避免直接返回空回答
+    if action == "FINISH" and not results:
+        action, query, intent = "rag_qa", user_input, "无历史结果，先检索文献库"
 
     # 通用知识问题：不经过工具，直接用模型自身知识回答
     if action == "DIRECT":
@@ -371,7 +393,7 @@ def synthesize(state: AgentState) -> AgentState:
         direct = state.get("direct_answer")
         if direct:
             return {"final_answer": direct}
-        return {"final_answer": "抱歉，我没能处理您的请求。"}
+        return {"final_answer": "未能在本地文献库中找到与该问题相关的内容。可以换一种问法，或先上传相关论文后再试。"}
 
     context = "\n\n".join(f"[{name}]\n{res}" for name, res in results.items())
     tools_used = " → ".join(results.keys())
