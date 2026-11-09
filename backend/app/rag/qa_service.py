@@ -106,11 +106,15 @@ def retrieve_context(query: str, top_k: int = 5, paper_id: str = None) -> tuple[
     seen_ids = set()
 
     where = {"paper_id": paper_id} if paper_id else None
+    # 候选池放大：多取一些再按论文配额挑选，避免超大型文档（如 541 页书籍）
+    # 靠切块数量优势淹没库内的短文论文
+    pool_size = max(top_k * 6, 20)
 
+    candidates = []  # (dist, doc, meta, source_key)
     for q in queries:
         results = collection.query(
             query_texts=[q],
-            n_results=top_k,
+            n_results=pool_size,
             where=where,
             include=["documents", "metadatas", "distances"],
         )
@@ -119,12 +123,42 @@ def retrieve_context(query: str, top_k: int = 5, paper_id: str = None) -> tuple[
         dists = results["distances"][0] if results["distances"] else []
 
         for doc, meta, dist in zip(docs, metas, dists):
-            chunk_id = meta.get("source", meta.get("paper_id", ""))
-            if chunk_id not in seen_ids and dist < 0.9:  # 放宽阈值
-                seen_ids.add(chunk_id)
-                best_docs.append(doc)
-                best_meta.append(meta)
-                best_dist.append(dist)
+            if dist >= 0.9:  # 放宽阈值，过远的不进上下文
+                continue
+            candidates.append((dist, doc, meta, meta.get("source", "")))
+
+    candidates.sort(key=lambda x: x[0])
+
+    # 第一轮：每篇论文最多取 2 条，保证来源多样性
+    MAX_PER_PAPER = 2
+    per_paper = {}
+    leftovers = []
+    for dist, doc, meta, key in candidates:
+        if key in seen_ids:
+            continue
+        pid = meta.get("paper_id", "")
+        if per_paper.get(pid, 0) >= MAX_PER_PAPER:
+            leftovers.append((dist, doc, meta, key))
+            continue
+        per_paper[pid] = per_paper.get(pid, 0) + 1
+        seen_ids.add(key)
+        best_docs.append(doc)
+        best_meta.append(meta)
+        best_dist.append(dist)
+        if len(best_docs) >= top_k:
+            break
+
+    # 第二轮：结果不足 top_k 时放开配额补足
+    if len(best_docs) < top_k:
+        for dist, doc, meta, key in leftovers:
+            if key in seen_ids:
+                continue
+            seen_ids.add(key)
+            best_docs.append(doc)
+            best_meta.append(meta)
+            best_dist.append(dist)
+            if len(best_docs) >= top_k:
+                break
 
     return best_docs, best_meta
 

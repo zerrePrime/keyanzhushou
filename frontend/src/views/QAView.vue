@@ -20,17 +20,26 @@
               class="mode-btn"
               :class="{ active: mode === 'single' }"
               @click="mode = 'single'"
-            >📄 单文问答</button>
+            >📚 文献库问答</button>
             <button
               class="mode-btn"
               :class="{ active: mode === 'compare' }"
               @click="mode = 'compare'"
             >⚖️ 多文对比</button>
           </div>
+          <select v-if="mode === 'single'" v-model="paperId" class="paper-select">
+            <option value="">🌐 全库检索（所有论文）</option>
+            <option v-for="p in papers" :key="p.paper_id" :value="p.paper_id">
+              📄 {{ p.title || p.paper_id }}
+            </option>
+          </select>
           <button class="btn btn-primary" @click="ask" :disabled="!question.trim() || loading">
             {{ loading ? '思考中...' : '🚀 发送' }}
           </button>
         </div>
+        <p v-if="paperId" class="scope-tip">
+          🔒 当前仅在《{{ currentPaperTitle }}》内检索，库内其他论文不参与
+        </p>
       </div>
 
       <!-- 右：结果 -->
@@ -70,7 +79,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 
 const question = ref('')
@@ -78,6 +87,23 @@ const mode = ref('single')
 const answer = ref('')
 const sources = ref([])
 const loading = ref(false)
+const papers = ref([])
+const paperId = ref('')
+
+const currentPaperTitle = computed(
+  () => papers.value.find((p) => p.paper_id === paperId.value)?.title || paperId.value,
+)
+
+const loadPapers = async () => {
+  try {
+    const r = await axios.get('/api/papers/')
+    papers.value = r.data.papers || []
+  } catch {
+    papers.value = []
+  }
+}
+
+onMounted(loadPapers)
 
 const ask = async () => {
   if (!question.value.trim() || loading.value) return
@@ -88,6 +114,7 @@ const ask = async () => {
     const r = await axios.post('/api/qa/ask', {
       question: question.value,
       mode: mode.value,
+      paper_id: mode.value === 'single' && paperId.value ? paperId.value : null,
     })
     answer.value = r.data.answer
     sources.value = r.data.sources || []
@@ -131,6 +158,17 @@ const ask = async () => {
   transition: all 0.2s;
 }
 .mode-btn.active { background: #4361ee; color: #fff; }
+
+.paper-select {
+  padding: 8px 12px; border-radius: 8px; border: 1px solid #e0e0e0;
+  font-size: 13px; background: #fff; max-width: 320px; cursor: pointer;
+}
+.paper-select:focus { outline: none; border-color: #4361ee; }
+.scope-tip {
+  margin: 10px 0 0 0; font-size: 12px; color: #7b5b00;
+  background: #fff8e1; border-left: 3px solid #f0b429;
+  padding: 7px 10px; border-radius: 4px;
+}
 
 .btn { padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; }
 .btn-primary { background: #4361ee; color: #fff; }
