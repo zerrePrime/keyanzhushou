@@ -134,26 +134,20 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, computed } from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import axios from 'axios'
+import {
+  messages,
+  input,
+  loading,
+  toolCallCount,
+  lastChain,
+  send,
+  clearAll,
+} from '../stores/agentChat'
 
-const messages = ref([])
-const input = ref('')
-const loading = ref(false)
 const tools = ref([])
 const messagesRef = ref(null)
-
-const toolCallCount = computed(() =>
-  messages.value
-    .filter((m) => m.role === 'assistant' && m.trace && m.trace.length)
-    .reduce((sum, m) => sum + m.trace.filter((s) => s.tool !== 'FINISH').length, 0)
-)
-
-// 最近一次回答串联的工具链路，用于状态面板展示
-const lastChain = computed(() => {
-  const last = [...messages.value].reverse().find((m) => m.role === 'assistant' && m.toolsUsed)
-  return last ? last.toolsUsed : '—'
-})
 
 const scrollBottom = async () => {
   await nextTick()
@@ -162,38 +156,10 @@ const scrollBottom = async () => {
   }
 }
 
-const send = async (text) => {
-  // keydown.enter 会把 KeyboardEvent 当参数传进来，只接受字符串
-  const content = (typeof text === 'string' ? text : input.value).trim()
-  if (!content || loading.value) return
-
-  messages.value.push({ role: 'user', content })
-  input.value = ''
-  loading.value = true
+// 会话状态已提到模块级，组件不再直接操作消息数组，改为监听变化后滚动到底部
+watch([() => messages.value.length, loading], () => {
   scrollBottom()
-
-  try {
-    const r = await axios.post('/api/agent/chat', { message: content })
-    const trace = r.data.thinking_trace || []
-    messages.value.push({
-      role: 'assistant',
-      content: r.data.answer,
-      trace,
-      traceOpen: false,                      // 默认折叠思考链，点击展开查看完整内容
-      toolsUsed: (r.data.all_tools || []).join(' → '),
-      tool_used: r.data.tool_used || '',
-      sources: r.data.sources || [],
-    })
-  } catch (e) {
-    messages.value.push({
-      role: 'assistant',
-      content: '❌ Agent 请求失败: ' + e.message,
-    })
-  } finally {
-    loading.value = false
-    scrollBottom()
-  }
-}
+})
 
 const loadTools = async () => {
   try {
@@ -210,10 +176,6 @@ const loadTools = async () => {
       { name: 'list_papers', description: '列出文献' },
     ]
   }
-}
-
-const clearAll = () => {
-  messages.value = []
 }
 
 onMounted(loadTools)
