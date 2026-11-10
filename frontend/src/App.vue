@@ -1,7 +1,7 @@
 <template>
   <div id="app">
-    <!-- 侧边栏 -->
-    <nav class="sidebar">
+    <!-- 侧边栏（登录页隐藏） -->
+    <nav v-if="!isAuthPage" class="sidebar">
       <div class="logo">
         <div class="logo-icon">🧠</div>
         <div class="logo-text">
@@ -37,11 +37,12 @@
           <span class="dot"></span>
           {{ backendOnline ? '后端在线' : '后端离线' }}
         </div>
+        <button class="logout" @click="logout">退出登录</button>
       </div>
     </nav>
 
     <!-- 主内容区 -->
-    <main class="content">
+    <main class="content" :class="{ 'content-auth': isAuthPage }">
       <router-view v-slot="{ Component }">
         <transition name="fade" mode="out-in">
           <component :is="Component" />
@@ -52,8 +53,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import axios from 'axios'
+
+const route = useRoute()
+const isAuthPage = computed(() => route.path === '/login')
 
 const backendOnline = ref(false)
 let pollTimer = null
@@ -67,7 +72,17 @@ const checkBackend = async () => {
   }
 }
 
+const logout = async () => {
+  try {
+    await axios.post('/api/auth/logout')
+  } catch {
+    // 忽略失败，直接回登录页
+  }
+  window.location.href = '/login'
+}
+
 onMounted(() => {
+  if (isAuthPage.value) return
   checkBackend()
   pollTimer = setInterval(checkBackend, 15000)
 })
@@ -127,6 +142,27 @@ onUnmounted(() => {
 .status.online .dot { background: #4ade80; box-shadow: 0 0 8px #4ade80; }
 .status.offline { color: #f87171; }
 .status.offline .dot { background: #f87171; }
+
+.logout {
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: #8892b0;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+.logout:hover {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #ff9a9a;
+}
+
+.content.content-auth { padding: 0; background: #0f1222; overflow: hidden; }
 
 .content {
   flex: 1; overflow-y: auto; padding: 28px 32px;

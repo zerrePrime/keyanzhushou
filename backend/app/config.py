@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     BACKEND_PORT: int = 8000
     FRONTEND_PORT: int = 5173
 
+    # 登录鉴权（替代 nginx Basic Auth），生产环境用 .env 覆盖
+    APP_USERNAME: str = "demo"
+    APP_PASSWORD: str = "***REMOVED***"
+    AUTH_SECRET: str = "research-assistant-session-secret"
+    AUTH_COOKIE: str = "ra_session"
+    AUTH_MAX_AGE: int = 7 * 24 * 3600
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 
