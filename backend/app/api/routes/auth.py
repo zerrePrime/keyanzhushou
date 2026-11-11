@@ -54,6 +54,9 @@ def current_user(request: Request) -> str | None:
 
 @router.post("/login")
 def login(req: LoginReq, response: Response):
+    if not settings.APP_PASSWORD:
+        raise HTTPException(status_code=503, detail="服务端未配置登录密码")
+
     ok_user = hmac.compare_digest(req.username, settings.APP_USERNAME)
     ok_pwd = hmac.compare_digest(req.password, settings.APP_PASSWORD)
     if not (ok_user and ok_pwd):

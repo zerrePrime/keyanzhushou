@@ -14,7 +14,7 @@
   T10 arXiv 每日推荐         返回结构与已入库过滤字段
 
 用法：
-  python tests/test_official_cases.py --user demo --password ***REMOVED***
+  python tests/test_official_cases.py --user demo --password <密码>
   python tests/test_official_cases.py --base-url http://49.233.71.147:8080 \
       --data-dir /tmp/testdata --include-large
 
@@ -127,7 +127,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default="http://127.0.0.1:8080")
     ap.add_argument("--user", default="demo")
-    ap.add_argument("--password", default="***REMOVED***")
+    ap.add_argument("--password", default=os.environ.get("APP_PASSWORD", ""))
     ap.add_argument("--data-dir", default="./testdata")
     ap.add_argument("--include-large", action="store_true", help="跑 541 页长文档（约 8 分钟）")
     ap.add_argument("--large-file", default="", help="541 页 PDF 路径，留空则用 data-dir/udl541.pdf")

@@ -10,11 +10,13 @@
   A6 外部检索工具       arXiv 类问题 → 应命中 arxiv_search
 
 用法：
-  python tests/test_agent.py --user demo --password ***REMOVED***
+  python tests/test_agent.py --user demo --password <密码>
+  也可用环境变量 APP_PASSWORD 提供密码
 """
 import argparse
 import base64
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -57,7 +59,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default="http://127.0.0.1:8080")
     ap.add_argument("--user", default="demo")
-    ap.add_argument("--password", default="***REMOVED***")
+    ap.add_argument("--password", default=os.environ.get("APP_PASSWORD", ""))
     ap.add_argument("--report", default="tests/agent_report.json")
     args = ap.parse_args()
 

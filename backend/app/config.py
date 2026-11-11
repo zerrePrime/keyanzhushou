@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     # 登录鉴权（替代 nginx Basic Auth），生产环境用 .env 覆盖
     APP_USERNAME: str = "demo"
-    APP_PASSWORD: str = "***REMOVED***"
+    APP_PASSWORD: str = ""  # 必须由环境变量注入，为空时拒绝登录
     AUTH_SECRET: str = "research-assistant-session-secret"
     AUTH_COOKIE: str = "ra_session"
     AUTH_MAX_AGE: int = 7 * 24 * 3600
