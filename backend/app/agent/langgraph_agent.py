@@ -305,6 +305,10 @@ def agent_decide(state: AgentState) -> AgentState:
 - 翻译 / translate / 译为 / 译文 → 调用 translate
 - 最新 / 年份（如 2024、2025）/ 新论文 → 调用 arxiv_search
 
+**translate 的参数格式**：query 必须写成 `en | 待译文本` 或 `zh | 待译文本`，待译文本要**完整**。
+若用户用指代（如「其中第一条」「上面那条」「它」）而没给出原文，从「上一轮回答原文」里把对应内容完整摘出来作为待译文本；
+严禁把「其中第一条」这类指代词本身当作待译文本。
+
 严格按要求输出 JSON，不要任何其他文字：
 {{"action": "工具名或FINISH或DIRECT", "query": "传给该工具的查询语句", "intent": "选择它的理由，15字以内"}}
 
@@ -482,7 +486,11 @@ def get_agent():
 
 # 多轮对话内存（进程内简单实现）
 _conversation_memory = {}
+_last_answers = {}
 MAX_HISTORY_PER_USER = 10
+
+# 指代型追问标记：出现这些词说明用户没给出原文，需要回填上一轮回答
+_DEICTIC_MARKERS = ("第一条", "第1条", "其中一", "上面", "上述", "刚才", "这条", "那条", "该条")
 
 
 def agent_chat(user_input: str, session_id: str = "default") -> dict:
@@ -493,12 +501,17 @@ def agent_chat(user_input: str, session_id: str = "default") -> dict:
     """
     # 多轮记忆：把历史摘要塞进第一句 messages
     history = _conversation_memory.get(session_id, [])
+    prev_answer = _last_answers.get(session_id, "")
     history_context = ""
     if history:
         history_context = f"（上下文：{'; '.join(history[-3:])}）"
         full_input = f"{user_input}{history_context}"
     else:
         full_input = user_input
+
+    # 指代型追问（如「把其中第一条翻译成英文」）：补上一轮回答原文，供规划器解析指代
+    if prev_answer and len(user_input) <= 60 and any(m in user_input for m in _DEICTIC_MARKERS):
+        full_input += f"\n\n上一轮回答原文（供解析指代，请从中提取完整文本）：\n{prev_answer[:1200]}"
 
     # 清空上一轮的溯源缓存，避免串轮
     _rag_sources_cache.pop("sources", None)
@@ -533,6 +546,7 @@ def agent_chat(user_input: str, session_id: str = "default") -> dict:
     _conversation_memory.setdefault(session_id, []).append(user_input)
     if len(_conversation_memory[session_id]) > MAX_HISTORY_PER_USER:
         _conversation_memory[session_id] = _conversation_memory[session_id][-MAX_HISTORY_PER_USER:]
+    _last_answers[session_id] = (result.get("final_answer") or "")[:1500]
 
     # 溯源信息直接复用 rag_qa 工具执行时的结果，不再重复调用一次问答
     sources = _rag_sources_cache.get("sources", []) if "rag_qa" in result.get("intermediate_results", {}) else []
