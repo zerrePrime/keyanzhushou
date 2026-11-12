@@ -257,8 +257,8 @@ def _is_heading_text(txt: str) -> bool:
 def extract_outline(filepath: str, max_items: int = 200) -> List[dict]:
     """
     基于版式（字号 + 粗体）提取 PDF 标题树。
-    以「行」为单位聚合，跳过旋转水印、版权声明、作者/邮箱区，减少噪声。
-    只做实时解析，不写入向量库 metadata，因此不影响已构建的 Chroma 库。
+    以「行」为单位聚合，跳过旋转水印、版权声明、作者/邮箱区，
+    以及 PDF 自带的目录页（Contents）避免把目录条目误收进标题树。
     """
     doc = fitz.open(filepath)
     try:
@@ -288,6 +288,42 @@ def extract_outline(filepath: str, max_items: int = 200) -> List[dict]:
 
         body_size = max(size_weight, key=size_weight.get)
 
+        # -------- 预检测 PDF 自带的目录页 --------
+        # 目录页（Contents/Table of Contents）的特征：
+        # 1) 先找到独立的 "Contents" 大字号标题
+        # 2) 该页及后续连续若干页，每行末尾跟页码（阿拉伯或罗马）
+        # 3) 这些页上 50%+ 的行都是 "标题... 页码" 格式
+        toc_pages = set()          # {page_idx, ...}
+        _TOC_HEADER_RE = re.compile(r'^(contents|table\s+of\s+contents|目录|目\s*录)$', re.I)
+        # 末尾跟页码（阿拉伯数字或小写罗马数字），前面可有省略号/点/空白
+        _TRAIL_NUM_RE = re.compile(r'[\s.·\-]{0,6}([0-9ivxlcdm]+)$', re.I)
+
+        # 第一步：找 "Contents" 标题所在页
+        toc_starts = set()
+        for pn, size, bold, y, txt in lines:
+            if _TOC_HEADER_RE.match(txt.strip()) and size / body_size >= 1.0:
+                toc_starts.add(pn)
+
+        # 第二步：从每个起始页向右扩展，直到连续两页不再像目录
+        for start in sorted(toc_starts):
+            p = start
+            consecutive_non_toc = 0
+            while p < doc.page_count and consecutive_non_toc < 2:
+                page_lines = [ln for ln in lines if ln[0] == p]
+                if not page_lines:
+                    consecutive_non_toc += 1
+                    p += 1
+                    continue
+                trail_num = sum(1 for ln in page_lines if _TRAIL_NUM_RE.search(ln[4].strip()))
+                ratio = trail_num / len(page_lines)
+                if ratio >= 0.4 and len(page_lines) >= 3:
+                    toc_pages.add(p)
+                    consecutive_non_toc = 0
+                else:
+                    consecutive_non_toc += 1
+                p += 1
+
+        # -------- 单页标题抽取（跳过目录页） --------
         # 首页标题上方的页眉/版权声明 + 下方的作者/单位区：字号小于主标题的一律不当标题
         title_y, title_size = None, 0.0
         page0 = [ln for ln in lines if ln[0] == 0 and _is_heading_text(ln[4])]
@@ -296,8 +332,12 @@ def extract_outline(filepath: str, max_items: int = 200) -> List[dict]:
 
         items, seen = [], set()
         for pn, size, bold, y, txt in lines:
+            if pn in toc_pages:         # ← 目录页整页跳过
+                continue
             if not _is_heading_text(txt):
                 continue
+            if _TRAIL_NUM_RE.search(txt.strip()) and len(txt.strip()) <= 20:
+                continue                 # ← 末尾只有页码的短行（"ix", "15", "Chapter 3 ... p.42"）
             if pn == 0 and title_y is not None and y <= title_y + 220 and size < title_size:
                 continue
 

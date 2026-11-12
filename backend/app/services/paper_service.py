@@ -2,7 +2,7 @@
 import os, shutil
 from pathlib import Path
 from app.config import settings
-from app.rag.chroma_client import get_collection
+from app.rag.chroma_client import get_collection, get_embedding_function
 from app.rag.pdf_parser import parse_pdf, chunks_for_rag
 
 
@@ -12,6 +12,10 @@ from app.rag.pdf_parser import parse_pdf, chunks_for_rag
 # v1 vs v7 预期 ≥ 0.95（几乎所有 chunk 相同）
 HIGH_OVERLAP_THRESHOLD = 0.90       # 几乎同一版（≥0.90，MD5 不同但正文几乎完全一致）
 VERSION_EVOLVE_THRESHOLD = 0.70     # 疑似版本演进（0.70~0.90，如 arXiv v1→v7 有少量修订）
+
+# 参与去重比对的 chunk 上限，超出则等距抽样。
+# ONNX MiniLM 在 2 核 CPU 上约 10 段/秒，几百页的书有上千个 chunk，全量算要几分钟。
+MAX_DEDUP_CHUNKS = 200
 
 
 def check_semantic_duplicate(new_paper, collection=None) -> list:
@@ -63,9 +67,20 @@ def check_semantic_duplicate(new_paper, collection=None) -> list:
     if not candidates:
         return []
 
-    # 2. 新论文 chunks 文本
+    # 2. 新论文 chunks 文本（超大文档等距抽样，去重只需代表性子集）
     new_texts = [c["text"] for c in new_paper.chunks if c.get("text")]
     if not new_texts:
+        return []
+    if len(new_texts) > MAX_DEDUP_CHUNKS:
+        step = len(new_texts) / MAX_DEDUP_CHUNKS
+        new_texts = [new_texts[int(i * step)] for i in range(MAX_DEDUP_CHUNKS)]
+
+    # 2.1 embedding 只算一次：逐篇 query 时传向量，避免每篇重复 embedding
+    #     （57 段约 5.8 秒，8 篇论文逐篇算就是 46 秒）
+    try:
+        new_embeddings = get_embedding_function()(new_texts)
+    except Exception as e:
+        print(f"[semantic_dedup] embedding 失败，跳过检测: {e}")
         return []
 
     # 3. 逐篇已有论文精准比对：对每个已有 pid 单独 query
@@ -75,7 +90,7 @@ def check_semantic_duplicate(new_paper, collection=None) -> list:
     for pid, title in candidates.items():
         try:
             results = collection.query(
-                query_texts=new_texts,
+                query_embeddings=new_embeddings,
                 n_results=1,              # 只要最相似的那一个
                 include=["distances"],
                 where={"paper_id": pid},  # 只查这一篇
