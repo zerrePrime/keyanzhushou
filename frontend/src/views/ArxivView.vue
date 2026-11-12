@@ -54,7 +54,7 @@
             @click="saveOne(p, i)"
             :disabled="savingIdx === i"
           >
-            {{ savingIdx === i ? '⏳ 入库中…' : '💾 入库' }}
+            {{ savingIdx === i ? '⏳ 下载解析中…' : '💾 入库' }}
           </button>
           <span v-else class="link saved">✅ 已在库中</span>
         </div>

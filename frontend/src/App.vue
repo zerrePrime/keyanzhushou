@@ -43,9 +43,17 @@
 
     <!-- 主内容区 -->
     <main class="content" :class="{ 'content-auth': isAuthPage }">
-      <router-view v-slot="{ Component }">
+      <!-- 
+        keep-alive 缓存业务页面实例：切路由时不销毁、回来直接复用。
+        登录页（route.meta.public=true）不缓存，退出后避免旧状态残留。
+        异步组件不需写 name，keep-alive 默认按组件 type 缓存单例。
+      -->
+      <router-view v-slot="{ Component, route }">
         <transition name="fade" mode="out-in">
-          <component :is="Component" />
+          <keep-alive v-if="!route.meta.public">
+            <component :is="Component" :key="$route.path" />
+          </keep-alive>
+          <component v-else :is="Component" />
         </transition>
       </router-view>
     </main>

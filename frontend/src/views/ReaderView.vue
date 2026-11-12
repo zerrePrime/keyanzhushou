@@ -145,8 +145,37 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
 
-// pdfjsLib 和 PDFViewer 都通过 index.html 的 <script> 标签全局加载
-const viewer = window.PDFViewer
+// pdf.js / pdf-viewer.js 从 index.html 移除，改为首次进入阅读器时按需加载
+// 避免其他页面（登录页、RAG 问答等）被迫下载 503KB 的 pdf.js
+let viewer = null                  // ← 模块顶层变量，prevPage/jumpTo/zoom 等闭包都引用它
+let _viewerPromise = null
+function ensurePdfViewer() {
+  if (viewer) return viewer        // 已加载过直接返回
+  if (_viewerPromise) return _viewerPromise  // 首次加载中，共享 Promise
+
+  _viewerPromise = new Promise((resolve, reject) => {
+    const load = (src) => new Promise((res, rej) => {
+      const s = document.createElement('script')
+      s.src = src
+      s.onload = res
+      s.onerror = () => rej(new Error('加载失败: ' + src))
+      document.head.appendChild(s)
+    })
+
+    // 顺序：先 pdf.js（暴露 window.pdfjsLib），再 pdf-viewer.js（暴露 window.PDFViewer）
+    load('/pdf.js')
+      .then(() => load('/pdf-viewer.js'))
+      .then(() => {
+        if (!window.PDFViewer) reject(new Error('PDFViewer 初始化失败'))
+        else {
+          viewer = window.PDFViewer   // 赋值模块顶层
+          resolve(viewer)
+        }
+      })
+      .catch(reject)
+  })
+  return _viewerPromise
+}
 
 const papers = ref([])
 const selectedId = ref('')
@@ -202,6 +231,12 @@ onUnmounted(() => {
 // 选择论文 → 加载 PDF + 目录
 const loadPaper = async () => {
   if (!selectedId.value) return
+  try {
+    await ensurePdfViewer()  // 赋值模块顶层 viewer
+  } catch (e) {
+    alert('PDF 阅读器加载失败: ' + e.message)
+    return
+  }
   // 先把上一份 PDF 的画面擦掉，否则新文件加载期间页面里仍是旧论文
   viewer.clear()
   totalPages.value = 0
@@ -275,6 +310,7 @@ const syncOutline = (page) => {
 }
 
 const doRender = async (promise) => {
+  if (!viewer) return
   rendering.value = true
   try {
     const result = await promise
@@ -423,8 +459,9 @@ const summarizePage = async () => {
 
 .btn {
   padding: 7px 14px; border-radius: 6px; border: 1px solid #ddd; background: #fff;
-  cursor: pointer; font-size: 13px; transition: all 0.2s;
+  color: #333; cursor: pointer; font-size: 13px; transition: all 0.2s;
 }
+.btn span, .zoom span { color: #333; }
 .btn:hover:not(:disabled) { background: #f0f2ff; border-color: #4361ee; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary { background: #4361ee; color: #fff; border-color: #4361ee; }
