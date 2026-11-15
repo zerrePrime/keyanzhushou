@@ -3,7 +3,7 @@ import os, shutil
 from pathlib import Path
 from app.config import settings
 from app.rag.chroma_client import get_collection, get_embedding_function
-from app.rag.pdf_parser import parse_pdf, chunks_for_rag
+from app.rag.pdf_parser import parse_pdf, chunks_for_rag, compute_file_hash
 
 
 # ====== 语义去重阈值 ======
@@ -148,20 +148,23 @@ def check_semantic_duplicate(new_paper, collection=None) -> list:
 
 
 def upload_paper(filepath: str, filename: str) -> dict:
-    """上传 PDF → 解析 → 语义去重检测 → 入库"""
-    paper = parse_pdf(filepath)
+    """上传 PDF → 哈希去重 → 解析 → 语义去重检测 → 入库"""
     collection = get_collection()
 
-    # ---- 第一层：MD5 精确重复（文件哈希） ----
-    existing_exact = collection.get(where={"paper_id": paper.paper_id})
+    # ---- 第一层：MD5 精确重复（先算哈希，重复文件不必再解析整本） ----
+    paper_id = compute_file_hash(filepath)[:12]
+    existing_exact = collection.get(where={"paper_id": paper_id}, limit=1)
     if len(existing_exact["ids"]) > 0:
+        metas = existing_exact.get("metadatas") or []
         return {
             "status": "duplicate",
             "reason": "md5_exact_match",
-            "paper_id": paper.paper_id,
-            "title": paper.title,
+            "paper_id": paper_id,
+            "title": metas[0].get("title", "") if metas else "",
             "message": "文件哈希完全相同，已存在于库中，跳过入库",
         }
+
+    paper = parse_pdf(filepath)
 
     # ---- 第二层：语义级去重（用 Chroma Embedding 比对） ----
     detections = check_semantic_duplicate(paper, collection=collection)

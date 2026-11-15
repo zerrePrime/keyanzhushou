@@ -27,11 +27,26 @@
       </div>
       <div class="uploading-list" v-if="uploading">
         <div class="upload-item">
-          <span>⏳ {{ uploadingName }} 上传中...</span>
-          <div class="progress-bar"><div class="progress-fill" :style="{width: progress + '%'}"></div></div>
+          <div class="upload-label">
+            <span class="spinner"></span>
+            <span class="upload-name">{{ uploadingName }}</span>
+            <span v-if="phase === 'upload'">
+              上传中 {{ progress }}%<span v-if="totalMb">（{{ loadedMb }} / {{ totalMb }} MB）</span>
+            </span>
+            <span v-else>校验解析中…</span>
+            <span class="elapsed">已用 {{ elapsed }}s</span>
+          </div>
+          <div class="progress-bar">
+            <div
+              class="progress-fill"
+              :class="{ indeterminate: phase === 'process' }"
+              :style="phase === 'upload' ? { width: progress + '%' } : {}"
+            ></div>
+          </div>
+          <div class="upload-hint">解析大文件需要时间，期间请勿关闭页面</div>
         </div>
       </div>
-      <div class="upload-msg" :class="uploadMsgClass">
+      <div class="upload-msg" v-if="uploadMsg" :class="uploadMsgClass">
         {{ uploadMsg }}
       </div>
     </div>
@@ -74,6 +89,20 @@ const papers = ref([])
 const uploading = ref(false)
 const uploadingName = ref('')
 const progress = ref(0)
+const phase = ref('upload')
+const elapsed = ref(0)
+const loadedMb = ref('')
+const totalMb = ref('')
+let timer = null
+const startTimer = () => {
+  elapsed.value = 0
+  clearInterval(timer)
+  timer = setInterval(() => { elapsed.value += 1 }, 1000)
+}
+const stopTimer = () => {
+  clearInterval(timer)
+  timer = null
+}
 const uploadMsg = ref('')
 const uploadMsgClass = ref('')
 const dragging = ref(false)
@@ -110,13 +139,31 @@ const doUpload = async (file) => {
   uploading.value = true
   uploadingName.value = file.name
   uploadMsg.value = ''
-  progress.value = 30
+  progress.value = 0
+  phase.value = 'upload'
+  loadedMb.value = ''
+  totalMb.value = ''
+  startTimer()
 
   const fd = new FormData()
   fd.append('file', file)
 
   try {
-    const r = await axios.post('/api/papers/upload', fd)
+    const r = await axios.post('/api/papers/upload', fd, {
+      onUploadProgress: (e) => {
+        // 部分浏览器拿不到总字节数，此时不显示会卡住的百分比，直接切成滚动动画
+        if (!e.total) {
+          phase.value = 'process'
+          if (e.loaded) loadedMb.value = (e.loaded / 1048576).toFixed(1)
+          return
+        }
+        progress.value = Math.round((e.loaded / e.total) * 100)
+        loadedMb.value = (e.loaded / 1048576).toFixed(1)
+        totalMb.value = (e.total / 1048576).toFixed(1)
+        // 文件传完后，服务端还要做去重校验和解析，这段时间进度条改为滚动动画
+        if (e.loaded >= e.total) phase.value = 'process'
+      },
+    })
     progress.value = 100
     const d = r.data
 
@@ -156,6 +203,7 @@ const doUpload = async (file) => {
     uploadMsgClass.value = 'error'
   } finally {
     uploading.value = false
+    stopTimer()
     await loadPapers()
   }
 }
@@ -217,8 +265,38 @@ onMounted(loadPapers)
 }
 .progress-fill {
   height: 100%; background: linear-gradient(90deg, #4361ee, #7209b7);
-  transition: width 0.3s;
+  transition: width 0.3s; position: relative; overflow: hidden;
 }
+.progress-fill::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.5), transparent);
+  animation: progress-shine 1.1s linear infinite;
+}
+@keyframes progress-shine {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.progress-fill.indeterminate {
+  width: 35%; transition: none;
+  animation: progress-slide 1.1s ease-in-out infinite;
+}
+@keyframes progress-slide {
+  0%   { margin-left: -35%; }
+  100% { margin-left: 100%; }
+}
+.upload-label {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 14px; color: #333; flex-wrap: wrap;
+}
+.upload-name { font-weight: 600; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.elapsed { margin-left: auto; color: #888; font-size: 12px; font-variant-numeric: tabular-nums; }
+.spinner {
+  width: 13px; height: 13px; flex: none;
+  border: 2px solid rgba(67,97,238,.25); border-top-color: #4361ee;
+  border-radius: 50%; animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.upload-hint { margin-top: 8px; font-size: 12px; color: #999; }
 
 .upload-msg {
   margin-top: 14px; padding: 12px 14px; border-radius: 8px;
